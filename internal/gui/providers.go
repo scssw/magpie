@@ -409,6 +409,7 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 	importAppsRoutes(mux)
 	traceRoutes(mux)
 	groupRoutes(mux)
+	logRoutes(mux, w)
 	mux.HandleFunc("GET /api/providers", func(rw http.ResponseWriter, r *http.Request) {
 		writeJSON(rw, providersState())
 	})

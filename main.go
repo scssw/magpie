@@ -16,6 +16,7 @@ import (
 	"github.com/yetone/magpie/internal/davsync"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/imagemcp"
+	"github.com/yetone/magpie/internal/logbuf"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/sessions"
@@ -111,6 +112,9 @@ func main() {
 
 func run(args []string) error {
 	settings.Migrate()
+	// what magpie says from here on is kept for the Logs view and its file
+	logbuf.Init(settings.Dir())
+	logbuf.Infof("magpie %s starting: settings %s", version, settings.Dir())
 	agent.RenameLegacy()
 	agent.MoveCursorEfforts()
 	agent.MoveAntigravityEfforts()

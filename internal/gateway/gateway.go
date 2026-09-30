@@ -24,6 +24,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
+	"github.com/yetone/magpie/internal/logbuf"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/redact"
@@ -240,6 +241,16 @@ func (s *Server) record(c Call) {
 	}
 	if s.debug {
 		log.Printf("%s %s → %s (%s→%s) %d %dms %s", c.Model, c.Provider, c.Provider, c.From, c.To, c.Status, c.Millis, c.Error)
+	}
+	// and to the Logs view, so a call the vendor answered badly can be read
+	// where it happened without turning debug on
+	switch {
+	case c.Error != "" || c.Status >= 500:
+		logbuf.Errorf("%s → %s (%s→%s) %d %dms %s", c.Model, c.Provider, c.From, c.To, c.Status, c.Millis, c.Error)
+	case c.Status >= 400:
+		logbuf.Warnf("%s → %s (%s→%s) %d %dms %s", c.Model, c.Provider, c.From, c.To, c.Status, c.Millis, c.Error)
+	default:
+		logbuf.Infof("%s → %s (%s→%s) %d %dms", c.Model, c.Provider, c.From, c.To, c.Status, c.Millis)
 	}
 }
 

@@ -1796,3 +1796,20 @@ body.panel .modal { padding: 16px 12px; }
   .status.ok, .status.err, .status.warn { background: var(--bg); }
   .status.lift { background: var(--card); }
 }
+
+/* Logs: what magpie has said lately, for a bug to be read where it happened. */
+.logs-list { padding: 0 12px 12px; }
+.logs-out {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 62vh;
+  overflow: auto;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-2);
+  background: var(--card-2, var(--bg));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.logs-out:empty::after { content: "Nothing logged yet."; color: var(--muted); }

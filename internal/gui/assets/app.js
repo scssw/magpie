@@ -8658,7 +8658,8 @@ function show(v) {
   view = v;
   if (mode === "window") { for (const b of $("#nav").querySelectorAll("button")) b.classList.toggle("on", b.dataset.view === v); slide($("#nav"), "nav"); }
   $("#prefs").classList.toggle("on", v === "settings");
-  for (const id of ["agents", "providers", "gateway", "routing", "usage", "library", "settings"]) $("#view-" + id).hidden = v !== id;
+  $("#logs").classList.toggle("on", v === "logs");
+  for (const id of ["agents", "providers", "gateway", "routing", "usage", "library", "logs", "settings"]) $("#view-" + id).hidden = v !== id;
   // back to where the reader was in it, and again once it has what it loads
   const back = () => backToReader($("#view-" + v));
   requestAnimationFrame(back);
@@ -8668,6 +8669,7 @@ function show(v) {
   if (v === "usage") loadUsage().then(back, (e) => status(e.message, "err"));
   if (v === "settings") loadSettings().then(back, (e) => status(e.message, "err"));
   if (v === "library") window.loadLibrary?.()?.then(back);
+  if (v === "logs") loadLogs().then(back, (e) => status(e.message, "err"));
   syncURL();
 }
 
@@ -8683,6 +8685,40 @@ function syncURL() {
 }
 if (mode === "window") for (const b of $("#nav").querySelectorAll("button")) b.onclick = () => { show(b.dataset.view); b.blur(); };
 $("#prefs").onclick = () => { if (mode === "window") show("settings"); else api("window/main?view=settings", {}); $("#prefs").blur(); };
+$("#logs").onclick = () => { if (mode === "window") show("logs"); else api("window/main?view=logs", {}); $("#logs").blur(); };
+
+// ---- Logs -----------------------------------------------------------------
+// What magpie has said lately, for a bug to be read where it happened: the
+// vendor's own answers to a call, and magpie's own missteps.
+const LOG_LEVELS = ["ALL", "INFO", "WARN", "ERROR"];
+let logLevel = "ALL";
+
+async function loadLogs() {
+  const q = logLevel === "ALL" ? "" : "?level=" + logLevel;
+  const d = (await api("logs" + q, undefined)) || {};
+  const lines = d.lines || [];
+  $("#logsOut").textContent = lines
+    .map((l) => `${new Date(l.at).toLocaleTimeString()} ${l.level} ${l.msg}`)
+    .join("\n");
+  $("#logsOut").scrollTop = $("#logsOut").scrollHeight;
+  $("#logsNote").textContent = d.path ? lines.length + " · " + d.path : String(lines.length);
+  return d;
+}
+
+$("#logsRefresh").onclick = () => loadLogs().catch((e) => status(e.message, "err"));
+$("#logsLevel").onclick = () => {
+  logLevel = LOG_LEVELS[(LOG_LEVELS.indexOf(logLevel) + 1) % LOG_LEVELS.length];
+  $("#logsLevel").textContent = logLevel === "ALL" ? t("All levels") : logLevel;
+  loadLogs().catch((e) => status(e.message, "err"));
+};
+$("#logsCopy").onclick = async () => {
+  const d = await api("logs/copy", {}).catch(() => null);
+  status(d?.ok ? t("Logs copied") : t("Could not copy"), d?.ok ? "ok" : "err");
+};
+$("#logsReveal").onclick = () => api("logs/reveal", {}).catch((e) => status(e.message, "err"));
+$("#logsClear").onclick = () => api("logs/clear", {}).then(loadLogs).catch((e) => status(e.message, "err"));
+// a log written while the view is open shows up without asking
+setInterval(() => { if (view === "logs" && !document.hidden) loadLogs().catch(() => {}); }, 3000);
 
 $("#sync").onclick = async () => {
   const b = $("#sync");
