@@ -2,8 +2,18 @@ package provider
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+// mustQuote is s as a JSON string, for a body built by hand.
+func mustQuote(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
 
 func TestWorkBuddyBody(t *testing.T) {
 	roles := func(body []byte) (out []string) {
@@ -55,5 +65,63 @@ func TestWorkBuddyBody(t *testing.T) {
 		if got := string(wbBody([]byte(b))); got != b {
 			t.Errorf("%s became %s", b, got)
 		}
+	}
+}
+
+// A system prompt WorkBuddy refuses outright is reworded, the rest of it
+// kept as it came, so the agent still has its instructions (#182).
+func TestWorkBuddyBodyRewordsForeignOpening(t *testing.T) {
+	opening := wbForeign[0].from
+	prompt := opening + "\n\n# Personality\n\nBe terse. " + opening + " is how you start."
+	in := []byte(`{"model":"workbuddy/hy3","messages":[{"role":"system","content":` +
+		mustQuote(prompt) + `},{"role":"user","content":"hi"}]}`)
+
+	out := wbBody(in)
+	var m struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(m.Messages) != 2 || m.Messages[0].Role != "system" {
+		t.Fatalf("messages: %s", out)
+	}
+	got := m.Messages[0].Content
+	// the opening is gone, both times it appeared
+	if strings.Contains(got, opening) {
+		t.Errorf("still refused:\n%s", got)
+	}
+	if !strings.Contains(got, wbForeign[0].to) {
+		t.Errorf("not reworded:\n%s", got)
+	}
+	// and nothing else was touched
+	if !strings.Contains(got, "# Personality") || !strings.Contains(got, "is how you start.") {
+		t.Errorf("the rest was lost:\n%s", got)
+	}
+	if m.Messages[1].Content != "hi" {
+		t.Errorf("user: %s", out)
+	}
+
+	// a system prompt that isn't one of those is left alone
+	same := `{"messages":[{"role":"system","content":"be brief"},{"role":"user","content":"hi"}]}`
+	if got := string(wbBody([]byte(same))); got != same {
+		t.Errorf("%s became %s", same, got)
+	}
+}
+
+// A system message in parts is reworded part by part.
+func TestWorkBuddyBodyRewordsParts(t *testing.T) {
+	in := []byte(`{"messages":[{"role":"system","content":[` +
+		`{"type":"text","text":` + mustQuote(wbForeign[0].from) + `},` +
+		`{"type":"text","text":"# Personality"}]},{"role":"user","content":"hi"}]}`)
+	out := string(wbBody(in))
+	if strings.Contains(out, wbForeign[0].from) {
+		t.Errorf("still refused: %s", out)
+	}
+	if !strings.Contains(out, "# Personality") {
+		t.Errorf("the rest was lost: %s", out)
 	}
 }

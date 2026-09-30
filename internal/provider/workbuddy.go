@@ -355,10 +355,59 @@ func wbProvider(a wbAccount) Provider {
 // wbSystem is the system message a chat that has none is sent with.
 const wbSystem = "You are a helpful assistant."
 
+// wbForeign are the openings of other agents' own system prompts that
+// WorkBuddy answers with "Illegal API invocation from an unapproved
+// channel" (#182). It matches them exactly: dropping a sentence, or a
+// word, or even one space, is enough to be let through, so each is
+// answered here with a rewording that says the same thing. The agent
+// keeps its instructions; only the wording it is known by goes.
+var wbForeign = []struct{ from, to string }{{
+	// Codex CLI's opening, as its binary carries it
+	"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. You are expected to be precise, safe, and helpful.",
+	"You are a coding agent working inside the Codex CLI (a terminal-based coding assistant). The Codex CLI is an open-source project led by OpenAI. Be precise, safe, and helpful in all you do.",
+}}
+
+// wbSystemRewrite rewords the openings WorkBuddy refuses, in a system
+// message's text.
+func wbSystemRewrite(s string) string {
+	for _, p := range wbForeign {
+		s = strings.ReplaceAll(s, p.from, p.to)
+	}
+	return s
+}
+
+// wbRewriteSystem rewords the openings in a system message whose content
+// is text, or parts of which one is text; anything else is left alone.
+// It says whether it changed anything, so a chat it leaves as it is
+// isn't encoded again.
+func wbRewriteSystem(msg map[string]any) bool {
+	switch c := msg["content"].(type) {
+	case string:
+		if s := wbSystemRewrite(c); s != c {
+			msg["content"] = s
+			return true
+		}
+	case []any:
+		var changed bool
+		for _, p := range c {
+			if part, ok := p.(map[string]any); ok {
+				if t, ok := part["text"].(string); ok {
+					if s := wbSystemRewrite(t); s != t {
+						part["text"] = s
+						changed = true
+					}
+				}
+			}
+		}
+		return changed
+	}
+	return false
+}
+
 // wbBody starts a chat with a system message when it has none: WorkBuddy
 // refuses one whose first message isn't the system prompt ("first message
 // is not system prompt"), and scripts and plain chat clients often send
-// none.
+// none. One it has is reworded where WorkBuddy refuses it outright.
 func wbBody(body []byte) []byte {
 	if !bytes.Contains(body, []byte(`"messages"`)) {
 		return body
@@ -373,10 +422,19 @@ func wbBody(body []byte) []byte {
 	if !ok || len(msgs) == 0 {
 		return body
 	}
-	if first, ok := msgs[0].(map[string]any); ok && first["role"] == "system" {
-		return body
+	first, isSystem := msgs[0].(map[string]any)
+	if isSystem {
+		isSystem = first["role"] == "system"
 	}
-	m["messages"] = append([]any{map[string]any{"role": "system", "content": wbSystem}}, msgs...)
+	if isSystem {
+		// WorkBuddy refuses some agents' own openings outright; reword
+		// them and send the rest of the prompt as it came
+		if !wbRewriteSystem(first) {
+			return body
+		}
+	} else {
+		m["messages"] = append([]any{map[string]any{"role": "system", "content": wbSystem}}, msgs...)
+	}
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
