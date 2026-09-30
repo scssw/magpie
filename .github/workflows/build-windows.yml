@@ -1,0 +1,84 @@
+name: Build Windows
+
+# Builds the Windows desktop app here, in this repo, and hands it over as
+# an artifact (and attached to a release, when a v* tag is pushed).
+#
+# Nothing here is signed or notarised, so no secret is needed: unlike
+# release.yml, which only asks yetone/magpie-releases to build and sign
+# one there, this one runs wherever you are.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp the build with (e.g. 0.1.0); blank uses the commit'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building magpie $V"
+
+      # The icon, the version and a DPI-aware manifest. Left non-fatal:
+      # when winres can't be fetched the build still runs, and carries
+      # Windows' own icon instead.
+      - name: Windows resources
+        continue-on-error: true
+        run: |
+          W="$(printf '%s' '${{ steps.version.outputs.version }}' | sed -E 's/^v//; s/[^0-9.].*//')"
+          go run github.com/tc-hib/go-winres@v0.3.3 make \
+            --in build/windows/winres.json --arch amd64,arm64 --out rsrc \
+            --file-version "${W:-0.0.0}" --product-version "${W:-0.0.0}"
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+        run: |
+          for arch in amd64 arm64; do
+            echo "  windows/$arch"
+            GOOS=windows GOARCH=$arch go build -tags production -trimpath \
+              -ldflags "-s -w -X main.version=${{ steps.version.outputs.version }} -H windowsgui" \
+              -o "dist/magpie-windows-$arch.exe" . || exit 1
+          done
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: magpie-windows
+          path: dist/magpie-windows-*.exe
+          if-no-files-found: error
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes dist/magpie-windows-*.exe
